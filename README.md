@@ -1,5 +1,7 @@
 # GlyphForge
 
+[![CI](https://github.com/suttonwilliamd/GlyphForge/actions/workflows/ci.yml/badge.svg)](https://github.com/suttonwilliamd/GlyphForge/actions/workflows/ci.yml)
+
 GlyphForge is a canvas-based text composition tool for designing stylized glyph layouts.
 
 Current state: Phase 1 prototype focused on text-layer rendering, layout behavior, and visual validation.

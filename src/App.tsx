@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import './App.css'
 import { renderTextLayer } from './lib/renderTextLayer'
 import type { EditorState, TextDirection, TextLayer } from './types/editor'
@@ -58,6 +58,8 @@ function reducer(state: EditorState, action: Action): EditorState {
 function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const [isDraggingHandle, setIsDraggingHandle] = useState(false)
 
   const selectedLayer = useMemo(() => {
     return state.layers.find((layer) => layer.id === state.selectedLayerId && layer.type === 'text') as
@@ -81,11 +83,63 @@ function App() {
     })
   }, [state])
 
-  if (!selectedLayer) return null
+  const updateLayer = useCallback(
+    (patch: Partial<TextLayer>) => {
+      if (!selectedLayer) return
+      dispatch({ type: 'update_text_layer', id: selectedLayer.id, patch })
+    },
+    [selectedLayer],
+  )
 
-  const updateLayer = (patch: Partial<TextLayer>) => {
-    dispatch({ type: 'update_text_layer', id: selectedLayer.id, patch })
+  const clamp = (value: number, min: number, max: number) => {
+    return Math.max(min, Math.min(max, value))
   }
+
+  const getCanvasPointFromPointer = useCallback(
+    (event: PointerEvent | React.PointerEvent) => {
+      const stage = stageRef.current
+      if (!stage) return null
+
+      const rect = stage.getBoundingClientRect()
+      const scaleX = state.document.width / rect.width
+      const scaleY = state.document.height / rect.height
+
+      return {
+        x: clamp(Math.round((event.clientX - rect.left) * scaleX), 0, state.document.width),
+        y: clamp(Math.round((event.clientY - rect.top) * scaleY), 0, state.document.height),
+      }
+    },
+    [state.document.height, state.document.width],
+  )
+
+  const onHandlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setIsDraggingHandle(true)
+  }
+
+  useEffect(() => {
+    if (!isDraggingHandle || !selectedLayer) return
+
+    const onPointerMove = (event: PointerEvent) => {
+      const point = getCanvasPointFromPointer(event)
+      if (!point) return
+      updateLayer({ x: point.x, y: point.y })
+    }
+
+    const onPointerUp = () => {
+      setIsDraggingHandle(false)
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+    }
+  }, [getCanvasPointFromPointer, isDraggingHandle, selectedLayer, updateLayer])
+
+  if (!selectedLayer) return null
 
   return (
     <div className="app-shell">
@@ -155,27 +209,7 @@ function App() {
           />
         </label>
 
-        <label>
-          Position X: {selectedLayer.x}
-          <input
-            type="range"
-            min={0}
-            max={state.document.width}
-            value={selectedLayer.x}
-            onChange={(e) => updateLayer({ x: Number(e.target.value) })}
-          />
-        </label>
-
-        <label>
-          Position Y: {selectedLayer.y}
-          <input
-            type="range"
-            min={0}
-            max={state.document.height}
-            value={selectedLayer.y}
-            onChange={(e) => updateLayer({ y: Number(e.target.value) })}
-          />
-        </label>
+        <p className="hint">Tip: drag the handle on the canvas to move text position.</p>
 
         <label>
           Color
@@ -188,12 +222,20 @@ function App() {
       </aside>
 
       <main className="canvas-wrap">
-        <canvas
-          ref={canvasRef}
-          width={state.document.width}
-          height={state.document.height}
-          className="editor-canvas"
-        />
+        <div className="canvas-stage" ref={stageRef}>
+          <canvas
+            ref={canvasRef}
+            width={state.document.width}
+            height={state.document.height}
+            className="editor-canvas"
+          />
+          <div
+            className={`text-handle ${isDraggingHandle ? 'dragging' : ''}`}
+            style={{ left: `${selectedLayer.x}px`, top: `${selectedLayer.y}px` }}
+            onPointerDown={onHandlePointerDown}
+            title="Drag to move text"
+          />
+        </div>
       </main>
     </div>
   )

@@ -54,10 +54,62 @@
   padding: 1.4rem;
 }
 
+.canvas-stage {
+  position: relative;
+  display: inline-block;
+}
+
 .editor-canvas {
   max-width: calc(100vw - 380px);
   max-height: calc(100vh - 40px);
   border: 1px solid #d0d4dc;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
   background: #fff;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #4b5563;
+}
+
+.text-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  margin-top: -8px;
+  border-radius: 999px;
+  border: 2px solid #2563eb;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+  cursor: grab;
+  touch-action: none;
+}
+
+.text-handle::before,
+.text-handle::after {
+  content: '';
+  position: absolute;
+  background: #2563eb;
+}
+
+.text-handle::before {
+  left: 50%;
+  top: 2px;
+  width: 1px;
+  height: 10px;
+  transform: translateX(-50%);
+}
+
+.text-handle::after {
+  top: 50%;
+  left: 2px;
+  width: 10px;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.text-handle.dragging {
+  cursor: grabbing;
 }
