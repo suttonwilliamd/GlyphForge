@@ -1,50 +1,111 @@
-# React + TypeScript + Vite
+# GlyphForge
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+GlyphForge is a canvas-based text composition tool for designing stylized glyph layouts.
 
-Currently, two official plugins are available:
+Current state: Phase 1 prototype focused on text-layer rendering, layout behavior, and visual validation.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## What the product does today
 
-## Expanding the ESLint configuration
+- Renders a text layer onto an HTML canvas
+- Supports text directions:
+  - Horizontal
+  - Vertical Down
+  - Vertical Up
+- Supports multiline content in horizontal mode
+- Adjustable typography and transform controls:
+  - Content
+  - Font family
+  - Font size
+  - Letter spacing (including negative values)
+  - Rotation
+  - Position X/Y
+  - Color
+- Uses deterministic glyph placement logic (`computeGlyphPlacements`) for predictable output
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+## Core architecture
 
-- Configure the top-level `parserOptions` property like this:
+- UI: React + TypeScript + Vite
+- Rendering: Canvas 2D API
+- Layout engine:
+  - `src/lib/textLayout.ts` computes per-glyph positions
+  - `src/lib/renderTextLayer.ts` draws glyph placements to canvas
+- State model:
+  - Document schema + typed text-layer model in `src/types/editor.ts`
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+## Project structure
+
+- `src/App.tsx` — editor UI and state reducer
+- `src/lib/textLayout.ts` — glyph placement logic
+- `src/lib/renderTextLayer.ts` — canvas text rendering
+- `src/lib/textLayout.test.ts` — layout unit tests
+- `scripts/visual-snapshots.mjs` — Playwright visual snapshot runner
+- `artifacts/snapshots/` — generated reference screenshots
+
+## Run locally
+
+Requirements: Node.js 18+
+
+```bash
+npm install
+npm run dev
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+Open the local URL printed by Vite.
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
+## Build
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+```bash
+npm run build
+npm run preview
 ```
+
+## CI/CD
+
+- CI (GitHub Actions): `.github/workflows/ci.yml`
+  - Runs on pushes/PRs to `main`
+  - Executes: `npm ci`, `npm run lint`, `npm test`, `npm run build`
+- CD (Vercel): connected to GitHub repository
+  - Production auto-deploys from `main`
+  - Live URL: `https://glyphforge-eosin.vercel.app`
+
+## Test
+
+Unit tests:
+
+```bash
+npm test
+```
+
+Visual snapshots (requires preview server running at `http://127.0.0.1:4173` by default):
+
+```bash
+npm run build
+npm run preview
+npm run test:visual
+```
+
+Optional base URL override:
+
+```bash
+GLYPHFORGE_BASE_URL=http://127.0.0.1:4173 npm run test:visual
+```
+
+## What this is not yet
+
+This repo is not yet a full multi-layer design editor. It currently has:
+
+- One editable text layer in the UI
+- No import/export pipeline
+- No persistence/project save format
+- No asset/tool ecosystem yet
+
+## Roadmap direction (high level)
+
+- Multi-layer editing and layer management
+- Better typography controls and text-on-path options
+- Export workflows (PNG/SVG/project JSON)
+- Stronger regression checks for rendering parity
+
+---
+
+If you landed here expecting a generic Vite template, that was old README content. This file now reflects the actual product in this repository.
