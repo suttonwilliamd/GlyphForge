@@ -26,6 +26,7 @@ const initialLayer: TextLayer = {
   lineHeight: 1.1,
   letterSpacing: 2,
   direction: 'vertical_down',
+  keepUpright: false,
 }
 
 const initialState: EditorState = {
@@ -207,6 +208,15 @@ function App() {
             value={selectedLayer.rotation}
             onChange={(e) => updateLayer({ rotation: Number(e.target.value) })}
           />
+        </label>
+
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={selectedLayer.keepUpright}
+            onChange={(e) => updateLayer({ keepUpright: e.target.checked })}
+          />
+          Keep characters upright
         </label>
 
         <p className="hint">Tip: drag the handle on the canvas to move text position.</p>

@@ -26,8 +26,22 @@ export function renderTextLayer(ctx: CanvasRenderingContext2D, layer: TextLayer)
     measureCharWidth: (char) => ctx.measureText(char).width,
   })
 
+  if (!layer.keepUpright) {
+    placements.forEach((placement) => {
+      ctx.fillText(placement.char, placement.x, placement.y)
+    })
+    ctx.restore()
+    return
+  }
+
+  const inverseRotation = (-layer.rotation * Math.PI) / 180
+
   placements.forEach((placement) => {
-    ctx.fillText(placement.char, placement.x, placement.y)
+    ctx.save()
+    ctx.translate(placement.x, placement.y)
+    ctx.rotate(inverseRotation)
+    ctx.fillText(placement.char, 0, 0)
+    ctx.restore()
   })
 
   ctx.restore()

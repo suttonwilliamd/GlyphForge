@@ -28,6 +28,7 @@ export interface TextLayer extends BaseLayer {
   lineHeight: number
   letterSpacing: number
   direction: TextDirection
+  keepUpright: boolean
 }
 
 export type Layer = TextLayer
