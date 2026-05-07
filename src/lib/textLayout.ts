@@ -29,11 +29,22 @@ export function computeGlyphPlacements(input: LayoutInput): GlyphPlacement[] {
 
   if (direction === 'horizontal') {
     let cursorX = 0
-    return Array.from(content).map((char) => {
-      const placement = { char, x: cursorX, y: 0 }
+    let cursorY = 0
+    const stepY = fontSize * lineHeight
+    const placements: GlyphPlacement[] = []
+
+    for (const char of Array.from(content)) {
+      if (char === '\n') {
+        cursorX = 0
+        cursorY += stepY
+        continue
+      }
+
+      placements.push({ char, x: cursorX, y: cursorY })
       cursorX += measureCharWidth(char) + letterSpacing
-      return placement
-    })
+    }
+
+    return placements
   }
 
   const step = fontSize * lineHeight + letterSpacing

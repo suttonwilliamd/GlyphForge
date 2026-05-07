@@ -75,18 +75,20 @@ describe('computeGlyphPlacements', () => {
     expect(placements).toEqual([])
   })
 
-  it('handles multiline characters as regular glyphs', () => {
+  it('handles multiline content by moving to next line', () => {
     const placements = computeGlyphPlacements({
       content: 'A\nB',
       direction: 'horizontal',
       letterSpacing: 0,
       fontSize: 16,
-      lineHeight: 1,
+      lineHeight: 1.5,
       measureCharWidth: () => 10,
     })
 
-    expect(placements).toHaveLength(3)
-    expect(placements[1].char).toBe('\n')
+    expect(placements).toEqual([
+      { char: 'A', x: 0, y: 0 },
+      { char: 'B', x: 0, y: 24 },
+    ])
   })
 
   it('handles long strings without dropping glyphs', () => {
