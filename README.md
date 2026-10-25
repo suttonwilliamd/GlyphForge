@@ -77,7 +77,9 @@ npm run preview
 
 - CI (GitHub Actions): `.github/workflows/ci.yml`
   - Runs on standard hosted Ubuntu and Windows runners with Node 22 on pushes/PRs to `main`
-  - Executes: `npm ci`, `npm run lint`, `npm test`, `npm run build`
+  - Executes: `npm ci`, `npm run lint`, `npm test`, `npm run build`, Chromium installation and `npm run test:browser`
+  - The stable required check `test-build` depends on the complete Windows+Ubuntu matrix, including browser smoke. Only a successful matrix passes; failure, cancellation or skipped checks cannot pass the aggregate.
+  - Uploads only demo PNGs/screenshots and `results.json` (seven-day retention), not environment or credentials. Hosted Windows Chromium evidence is not the owner's interactive Edge/native-device acceptance.
 - CD (Vercel): connected to GitHub repository
   - Production auto-deploys from `main`
   - Live URL: `https://glyphforge-eosin.vercel.app`
@@ -89,6 +91,36 @@ Unit and DOM contract tests (canvas/encoding mocks verify invocation and failure
 ```bash
 npm test
 ```
+
+### Real browser PNG smoke
+
+```bash
+npm run build
+# On your own machine or ephemeral CI runner, if Chromium is not installed:
+npx playwright install chromium
+npm run test:browser
+```
+
+The smoke script starts and closes its own loopback-only Vite preview on an available port; no separate preview server is required. It saves three downloaded PNGs, four bounded screenshots and `results.json` in `artifacts/browser-smoke/`. It checks actual PNG signatures and 1000 × 700 dimensions, equality with the current preview canvas, white opaque background, nonempty lettering and no handle color. Cases cover default vertical, rotated negative-spacing multiline, and rotated upright vertical-up. It also exercises real X/Y clamping and asserts no page errors. Browser and server cleanup run in `finally`, including on failure.
+
+To reuse an existing Chromium executable without downloading a browser:
+
+```bash
+# POSIX shell
+GLYPHFORGE_BROWSER_EXECUTABLE=/path/to/chromium npm run test:browser
+```
+
+```powershell
+# PowerShell
+$env:GLYPHFORGE_BROWSER_EXECUTABLE = 'C:\\path\\to\\chrome.exe'
+npm run test:browser
+```
+
+A missing executable is a failed/unrun browser check, not a pass. Do not install browsers/system dependencies on restricted hosts; hand off to an authorized existing browser or hosted CI. The script does not install anything. Playwright's minimum is 1.55.1 (within major 1), addressing the <=1.55.0 browser-download TLS-verification advisory before CI browser installation. This is not a broad tooling security remediation.
+
+Automated Chromium results, even on a real hosted Windows runner, do not establish interactive Edge, physical-device, font parity or independent visual acceptance. The narrow screenshot is evidence only, not a mobile parity claim.
+
+### Reference screenshots
 
 Visual snapshots (requires preview server running at `http://127.0.0.1:4173` by default):
 
@@ -119,7 +151,7 @@ This repo is not yet a full multi-layer design editor. It currently has:
 
 Before release, CEO must independently run the Windows/browser export steps above, including multiline horizontal, negative spacing, rotated and vertical-upright compositions, and verify the actual PNG. BobRoss must review actual before/after screenshots at wide and narrow widths; automated mocks and reference-image files are not that review.
 
-Development dependencies include existing Vite 5/Vitest 1 tooling with known advisories. Use localhost only for development/preview; do not expose the dev server or enable an unauthenticated Vitest UI/API. Run `npm audit` to inspect the current registry findings. This increment adds jsdom for DOM tests but intentionally does not broadly upgrade React/Vite; dependency remediation is separate work.
+Development dependencies include existing Vite 5/Vitest 1 tooling with known advisories. Use localhost only for development/preview; do not expose the dev server or enable an unauthenticated Vitest UI/API. Run `npm audit` to inspect the current registry findings. The PNG increment added jsdom for DOM tests; this follow-up patches the Playwright browser-download advisory only. It intentionally does not broadly upgrade React/Vite; remaining dependency remediation is separate work.
 
 ## Roadmap direction (high level)
 
