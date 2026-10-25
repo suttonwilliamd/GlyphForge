@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import './App.css'
-import { renderTextLayer } from './lib/renderTextLayer'
+import { clampCoordinate, renderDocument } from './lib/renderDocument'
+import { exportPng } from './lib/exportPng'
 import type { EditorState, TextDirection, TextLayer } from './types/editor'
 
 type Action =
@@ -61,6 +62,25 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const [isDraggingHandle, setIsDraggingHandle] = useState(false)
+  const encodingRef = useRef(false)
+  const [isEncoding, setIsEncoding] = useState(false)
+  const [exportStatus, setExportStatus] = useState('')
+
+  const downloadPng = async () => {
+    if (encodingRef.current) return
+    encodingRef.current = true
+    setIsEncoding(true)
+    setExportStatus('Preparing PNG…')
+    try {
+      await exportPng(state)
+      setExportStatus('PNG download requested. Check your browser downloads.')
+    } catch {
+      setExportStatus('PNG export failed. Please try again or check browser font/download support.')
+    } finally {
+      encodingRef.current = false
+      setIsEncoding(false)
+    }
+  }
 
   const selectedLayer = useMemo(() => {
     return state.layers.find((layer) => layer.id === state.selectedLayerId && layer.type === 'text') as
@@ -75,13 +95,7 @@ function App() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    ctx.clearRect(0, 0, state.document.width, state.document.height)
-    ctx.fillStyle = state.document.background
-    ctx.fillRect(0, 0, state.document.width, state.document.height)
-
-    state.layers.forEach((layer) => {
-      if (layer.type === 'text') renderTextLayer(ctx, layer)
-    })
+    renderDocument(ctx, state)
   }, [state])
 
   const updateLayer = useCallback(
@@ -145,7 +159,12 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="panel">
-        <h2>GlyphForge • Phase 1</h2>
+        <h2>GlyphForge</h2>
+        <p className="hint">{state.document.width} × {state.document.height} px · Single text layer</p>
+        <button type="button" className="download-button" disabled={isEncoding} onClick={downloadPng}>
+          {isEncoding ? 'Preparing PNG…' : 'Download PNG'}
+        </button>
+        <p role="status" aria-live="polite" className="hint">{exportStatus}</p>
 
         <label>
           Content
@@ -219,7 +238,27 @@ function App() {
           Keep characters upright
         </label>
 
-        <p className="hint">Tip: drag the handle on the canvas to move text position.</p>
+        <div className="position-controls">
+          {(['x', 'y'] as const).map((axis) => (
+            <label key={axis}>
+              {axis.toUpperCase()} position (px)
+              <input
+                type="number"
+                min={0}
+                max={axis === 'x' ? state.document.width : state.document.height}
+                step="any"
+                value={selectedLayer[axis]}
+                onChange={(event) => {
+                  const value = clampCoordinate(event.target.valueAsNumber,
+                    axis === 'x' ? state.document.width : state.document.height)
+                  if (value !== null) updateLayer({ [axis]: value })
+                  else event.currentTarget.value = String(selectedLayer[axis])
+                }}
+              />
+            </label>
+          ))}
+        </div>
+        <p className="hint">Drag the handle or enter X/Y. Values stay within the document; empty or invalid input keeps the last position.</p>
 
         <label>
           Color
@@ -238,10 +277,12 @@ function App() {
             width={state.document.width}
             height={state.document.height}
             className="editor-canvas"
+            role="img"
+            aria-label={`Composition: ${selectedLayer.content}`}
           />
           <div
             className={`text-handle ${isDraggingHandle ? 'dragging' : ''}`}
-            style={{ left: `${selectedLayer.x}px`, top: `${selectedLayer.y}px` }}
+            style={{ left: `${selectedLayer.x / state.document.width * 100}%`, top: `${selectedLayer.y / state.document.height * 100}%` }}
             onPointerDown={onHandlePointerDown}
             title="Drag to move text"
           />
