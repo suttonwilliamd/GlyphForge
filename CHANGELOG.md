@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — scoped development-tool security remediation
+
+- Pin Vite 6.4.4 and Vitest 4.1.12 on Node 22. Published Vitest 4.1.0 was tested but still reports mocker advisories GHSA-82fw-gwwq-j7x9 and GHSA-qxg6-89mg-rqv8; 4.1.12 addresses these within major 4.
+- Refresh affected compatible Babel/Browserslist/baseline mapping, PostCSS/nanoid/source-map-js, js-yaml and both brace-expansion dependency paths without overrides or new direct dependencies. The Vitest migration removes the old vite-node/tinypool paths.
+- Preserve React 18, React plugin 4.7.0, Playwright 1.64.1, application source, all 16 existing behavioral tests and the fail-closed Windows+Ubuntu browser gate. No test compatibility edits were needed.
+- Clean local Node 22 installation, lint, 16/16 tests and build pass. Full/production audit snapshots on 2026-10-25 report zero known vulnerabilities; this is not a comprehensive safety claim. Independent review and fresh hosted browser PNG smoke/output comparison remain pending for this toolchain, with no new native Windows or visual acceptance claimed.
+
 ## Unreleased — CI gate and browser evidence follow-up
 
 - Preserve the exact required `test-build` context with a fail-closed aggregate of real Windows+Ubuntu lint, unit, build and browser checks; protection policy and independent GitHub approval remain unchanged.

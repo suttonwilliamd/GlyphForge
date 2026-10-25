@@ -151,7 +151,9 @@ This repo is not yet a full multi-layer design editor. It currently has:
 
 Before release, CEO must independently run the Windows/browser export steps above, including multiline horizontal, negative spacing, rotated and vertical-upright compositions, and verify the actual PNG. BobRoss must review actual before/after screenshots at wide and narrow widths; automated mocks and reference-image files are not that review.
 
-Development dependencies include existing Vite 5/Vitest 1 tooling with known advisories. Use localhost only for development/preview; do not expose the dev server or enable an unauthenticated Vitest UI/API. Run `npm audit` to inspect the current registry findings. The PNG increment added jsdom for DOM tests; this follow-up patches the Playwright browser-download advisory only. It intentionally does not broadly upgrade React/Vite; remaining dependency remediation is separate work.
+The tooling-security follow-up pins Vite 6.4.4 and Vitest 4.1.12, retaining React 18, the compatible React plugin 4.7.0 and locked Playwright 1.64.1. Vitest 4.1.0 was evaluated but current advisories for its mocker require 4.1.12. Only affected compatible transitive dependency families were refreshed; application code, all 16 behavioral tests and the browser CI gate are unchanged.
+
+On 2026-10-25, clean Node 22 installation, lint, all 16 unit/DOM tests and production build passed locally. Full and production-only `npm audit` reported zero known vulnerabilities for this lockfile, versus 14 full-audit package findings at the previous base. Audit results are registry snapshots, not proof that the toolchain is fully safe or that browser output is identical. Re-run `npm audit` for current findings. Use localhost only for development/preview; do not expose the dev server or enable an unauthenticated Vitest UI/API. Independent review and fresh hosted Windows+Ubuntu browser PNG smoke remain gates for this follow-up; previous screenshots do not establish new-toolchain output parity.
 
 ## Roadmap direction (high level)
 
