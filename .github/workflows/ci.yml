@@ -13,9 +13,16 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: read
+
 jobs:
-  test-build:
-    runs-on: ubuntu-latest
+  platform-checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
 
     steps:
@@ -25,7 +32,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -39,3 +46,38 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Install Chromium (ephemeral hosted runner)
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser PNG smoke
+        run: npm run test:browser
+
+      - name: Upload demo browser evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-demo-${{ matrix.os }}
+          path: |
+            artifacts/browser-smoke/*.png
+            artifacts/browser-smoke/results.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Preserve the exact branch-protection context, not matrix-suffixed names.
+  test-build:
+    name: test-build
+    needs: [platform-checks]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every platform check (including browser smoke)
+        env:
+          MATRIX_RESULT: ${{ needs.platform-checks.result }}
+        shell: bash
+        run: |
+          if [[ "$MATRIX_RESULT" != "success" ]]; then
+            echo "Platform matrix did not succeed: $MATRIX_RESULT"
+            exit 1
+          fi

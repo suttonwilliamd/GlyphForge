@@ -70,12 +70,13 @@
 .canvas-stage {
   position: relative;
   display: inline-block;
+  border: 1px solid #d0d4dc;
 }
 
 .editor-canvas {
   max-width: calc(100vw - 380px);
   max-height: calc(100vh - 40px);
-  border: 1px solid #d0d4dc;
+  display: block;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
   background: #fff;
 }
@@ -125,4 +126,37 @@
 
 .text-handle.dragging {
   cursor: grabbing;
+}
+
+.position-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.position-controls input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.download-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: #1d4ed8;
+  color: white;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.download-button:disabled {
+  background: #4b5563;
+  cursor: wait;
+}
+
+.panel :focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
 }
