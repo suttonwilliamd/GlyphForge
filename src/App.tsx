@@ -2,6 +2,12 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import './App.css'
 import { renderTextLayer } from './lib/renderTextLayer'
 import type { EditorState, TextDirection, TextLayer } from './types/editor'
+import { clamp, constrainPosition, getViewport, MAX_ZOOM, MIN_ZOOM, toDocument, toViewport } from './lib/viewport'
+import type { Point } from './lib/viewport'
+
+type Gesture =
+  | { kind: 'handle'; pointerId: number; offset: Point }
+  | { kind: 'pan'; pointerId: number; start: Point; pan: Point }
 
 type Action =
   | { type: 'update_text_layer'; id: string; patch: Partial<TextLayer> }
@@ -59,8 +65,25 @@ function reducer(state: EditorState, action: Action): EditorState {
 function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const stageRef = useRef<HTMLDivElement | null>(null)
-  const [isDraggingHandle, setIsDraggingHandle] = useState(false)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+  const gestureRef = useRef<Gesture | null>(null)
+  const [activeGesture, setActiveGesture] = useState<Gesture['kind'] | null>(null)
+  const [viewportSize, setViewportSize] = useState({ width: 1, height: 1 })
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 })
+  const [panMode, setPanMode] = useState(false)
+  const [controlsOpen, setControlsOpen] = useState(() => !window.matchMedia('(max-width: 900px)').matches)
+  const view = getViewport(state.document, viewportSize, zoom, pan)
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const observer = new ResizeObserver(([entry]) => {
+      setViewportSize({ width: entry.contentRect.width, height: entry.contentRect.height })
+    })
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
 
   const selectedLayer = useMemo(() => {
     return state.layers.find((layer) => layer.id === state.selectedLayerId && layer.type === 'text') as
@@ -92,60 +115,130 @@ function App() {
     [selectedLayer],
   )
 
-  const clamp = (value: number, min: number, max: number) => {
-    return Math.max(min, Math.min(max, value))
+  const localPoint = (event: React.PointerEvent): Point => {
+    const rect = viewportRef.current!.getBoundingClientRect()
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top }
   }
 
-  const getCanvasPointFromPointer = useCallback(
-    (event: PointerEvent | React.PointerEvent) => {
-      const stage = stageRef.current
-      if (!stage) return null
+  const finishGesture = (event: React.PointerEvent) => {
+    if (gestureRef.current?.pointerId !== event.pointerId) return
+    gestureRef.current = null
+    setActiveGesture(null)
+  }
 
-      const rect = stage.getBoundingClientRect()
-      const scaleX = state.document.width / rect.width
-      const scaleY = state.document.height / rect.height
-
-      return {
-        x: clamp(Math.round((event.clientX - rect.left) * scaleX), 0, state.document.width),
-        y: clamp(Math.round((event.clientY - rect.top) * scaleY), 0, state.document.height),
-      }
-    },
-    [state.document.height, state.document.width],
-  )
-
-  const onHandlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+  const moveGesture = (event: React.PointerEvent) => {
+    const gesture = gestureRef.current
+    if (!gesture || gesture.pointerId !== event.pointerId) return
     event.preventDefault()
-    setIsDraggingHandle(true)
+    const point = localPoint(event)
+    if (gesture.kind === 'handle') {
+      const logical = toDocument(point, view)
+      updateLayer(constrainPosition({ x: logical.x - gesture.offset.x, y: logical.y - gesture.offset.y }, state.document))
+    } else {
+      setPan(getViewport(state.document, viewportSize, zoom, {
+        x: gesture.pan.x + point.x - gesture.start.x,
+        y: gesture.pan.y + point.y - gesture.start.y,
+      }).pan)
+    }
   }
 
-  useEffect(() => {
-    if (!isDraggingHandle || !selectedLayer) return
+  const changeZoom = (delta: number) => {
+    setZoom((current) => clamp(current + delta, MIN_ZOOM, MAX_ZOOM))
+    setPan(view.pan)
+  }
 
-    const onPointerMove = (event: PointerEvent) => {
-      const point = getCanvasPointFromPointer(event)
-      if (!point) return
-      updateLayer({ x: point.x, y: point.y })
-    }
-
-    const onPointerUp = () => {
-      setIsDraggingHandle(false)
-    }
-
-    window.addEventListener('pointermove', onPointerMove)
-    window.addEventListener('pointerup', onPointerUp)
-
-    return () => {
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerup', onPointerUp)
-    }
-  }, [getCanvasPointFromPointer, isDraggingHandle, selectedLayer, updateLayer])
+  const fitToView = () => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+  }
 
   if (!selectedLayer) return null
 
   return (
     <div className="app-shell">
-      <aside className="panel">
-        <h2>GlyphForge • Phase 1</h2>
+      <main className="canvas-wrap">
+        <header className="stage-header">
+          <h1>GlyphForge</h1>
+          <span>1000 × 700 document</span>
+        </header>
+        <div className="viewport-toolbar" role="group" aria-label="Canvas view">
+          <button type="button" onClick={() => changeZoom(-0.25)} disabled={zoom <= MIN_ZOOM} aria-label="Zoom out">−</button>
+          <output aria-label="Zoom level">{Math.round(view.scale * 100)}%</output>
+          <button type="button" onClick={() => changeZoom(0.25)} disabled={zoom >= MAX_ZOOM} aria-label="Zoom in">+</button>
+          <button type="button" onClick={fitToView}>Fit to view</button>
+          <button type="button" aria-pressed={panMode} onClick={() => setPanMode((current) => !current)}>Pan view</button>
+        </div>
+        <p className="hint" id="viewport-help">
+          {panMode ? 'Drag the view or use arrow keys to pan. Turn Pan view off to scroll the page.' : 'Drag the blue handle to move text. Use Pan view to navigate when zoomed.'}
+        </p>
+        <div
+          className={`canvas-viewport ${panMode ? 'pan-mode' : ''} ${activeGesture === 'pan' ? 'panning' : ''}`}
+          ref={viewportRef}
+          role="region"
+          aria-label="Document viewport"
+          aria-describedby="viewport-help"
+          tabIndex={0}
+          onPointerDown={(event) => {
+            if (!panMode || event.button !== 0 || gestureRef.current) return
+            event.preventDefault()
+            event.currentTarget.setPointerCapture(event.pointerId)
+            gestureRef.current = { kind: 'pan', pointerId: event.pointerId, start: localPoint(event), pan: view.pan }
+            setActiveGesture('pan')
+          }}
+          onPointerMove={moveGesture}
+          onPointerUp={finishGesture}
+          onPointerCancel={finishGesture}
+          onLostPointerCapture={finishGesture}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget || !panMode) return
+            const deltas: Record<string, Point> = { ArrowLeft: { x: 40, y: 0 }, ArrowRight: { x: -40, y: 0 }, ArrowUp: { x: 0, y: 40 }, ArrowDown: { x: 0, y: -40 } }
+            const delta = deltas[event.key]
+            if (!delta) return
+            event.preventDefault()
+            setPan(getViewport(state.document, viewportSize, zoom, { x: view.pan.x + delta.x, y: view.pan.y + delta.y }).pan)
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={state.document.width}
+            height={state.document.height}
+            className="editor-canvas"
+            aria-label="Text composition preview"
+            style={{ transform: `translate(${view.origin.x}px, ${view.origin.y}px) scale(${view.scale})` }}
+          />
+          <button
+            type="button"
+            className={`text-handle ${activeGesture === 'handle' ? 'dragging' : ''}`}
+            style={{ left: toViewport(selectedLayer, view).x, top: toViewport(selectedLayer, view).y }}
+            aria-label="Move text"
+            aria-describedby="handle-help text-position"
+            onPointerDown={(event) => {
+              if (event.button !== 0 || gestureRef.current) return
+              event.preventDefault()
+              event.stopPropagation()
+              event.currentTarget.focus({ preventScroll: true })
+              event.currentTarget.setPointerCapture(event.pointerId)
+              const point = toDocument(localPoint(event), view)
+              gestureRef.current = { kind: 'handle', pointerId: event.pointerId, offset: { x: point.x - selectedLayer.x, y: point.y - selectedLayer.y } }
+              setActiveGesture('handle')
+            }}
+            onKeyDown={(event) => {
+              const deltas: Record<string, Point> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } }
+              const delta = deltas[event.key]
+              if (!delta) return
+              event.preventDefault()
+              const step = event.shiftKey ? 10 : 1
+              updateLayer(constrainPosition({ x: selectedLayer.x + delta.x * step, y: selectedLayer.y + delta.y * step }, state.document))
+            }}
+          />
+        </div>
+        <p className="hint" id="handle-help">Move text with arrow keys; hold Shift for 10 document pixels.</p>
+        <output className="position-readout" id="text-position">Position: X {selectedLayer.x}, Y {selectedLayer.y}</output>
+      </main>
+      <aside className="panel" aria-label="Text controls">
+        <details open={controlsOpen} onToggle={(event) => setControlsOpen(event.currentTarget.open)}>
+          <summary>Text controls</summary>
+          <div className="panel-fields">
 
         <label>
           Content
@@ -219,7 +312,7 @@ function App() {
           Keep characters upright
         </label>
 
-        <p className="hint">Tip: drag the handle on the canvas to move text position.</p>
+        <p className="hint">Position is in document pixels; zoom and pan never change the text layout.</p>
 
         <label>
           Color
@@ -229,24 +322,9 @@ function App() {
             onChange={(e) => updateLayer({ color: e.target.value })}
           />
         </label>
+          </div>
+        </details>
       </aside>
-
-      <main className="canvas-wrap">
-        <div className="canvas-stage" ref={stageRef}>
-          <canvas
-            ref={canvasRef}
-            width={state.document.width}
-            height={state.document.height}
-            className="editor-canvas"
-          />
-          <div
-            className={`text-handle ${isDraggingHandle ? 'dragging' : ''}`}
-            style={{ left: `${selectedLayer.x}px`, top: `${selectedLayer.y}px` }}
-            onPointerDown={onHandlePointerDown}
-            title="Drag to move text"
-          />
-        </div>
-      </main>
     </div>
   )
 }

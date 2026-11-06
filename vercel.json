@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "overnight/2026-11-06-mobile-editor": false
+    }
+  }
+}

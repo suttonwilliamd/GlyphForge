@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+
+# Disposable mobile browser evidence (uploaded by CI)
+artifacts/mobile/

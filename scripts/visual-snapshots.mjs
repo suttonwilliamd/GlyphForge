@@ -58,11 +58,11 @@ const cases = [
 
 async function setRangeByLabel(page, labelText, value) {
   const input = page.locator(`label:has-text("${labelText}") input[type=range]`).first()
-  await input.evaluate((el, next) => {
-    el.value = String(next)
-    el.dispatchEvent(new Event('input', { bubbles: true }))
-    el.dispatchEvent(new Event('change', { bubbles: true }))
-  }, value)
+  const minimum = Number(await input.getAttribute('min'))
+  await input.focus()
+  await input.press('Home')
+  for (let step = minimum; step < value; step++) await input.press('ArrowRight')
+  if (Number(await input.inputValue()) !== value) throw new Error(`${labelText} did not reach ${value}`)
 }
 
 async function run() {

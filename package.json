@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:visual": "node scripts/visual-snapshots.mjs",
+    "test:mobile": "node scripts/mobile-editor.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
