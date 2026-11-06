@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:visual": "node scripts/visual-snapshots.mjs",
     "test:mobile": "node scripts/mobile-editor.mjs",
+    "test:files": "node scripts/project-files.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

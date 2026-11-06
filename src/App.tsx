@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import './App.css'
-import { renderTextLayer } from './lib/renderTextLayer'
+import { downloadFile, exportPng, renderDocument } from './lib/renderDocument'
+import { createProjectImporter, encodeProject, MAX_CONTENT_LENGTH, MAX_FONT_FAMILY_LENGTH } from './lib/project'
 import type { EditorState, TextDirection, TextLayer } from './types/editor'
 import { clamp, constrainPosition, getViewport, MAX_ZOOM, MIN_ZOOM, toDocument, toViewport } from './lib/viewport'
 import type { Point } from './lib/viewport'
@@ -12,6 +13,7 @@ type Gesture =
 type Action =
   | { type: 'update_text_layer'; id: string; patch: Partial<TextLayer> }
   | { type: 'select_layer'; id: string }
+  | { type: 'replace_project'; state: EditorState }
 
 const initialLayer: TextLayer = {
   id: 'layer-1',
@@ -47,6 +49,8 @@ const initialState: EditorState = {
 
 function reducer(state: EditorState, action: Action): EditorState {
   switch (action.type) {
+    case 'replace_project':
+      return action.state
     case 'update_text_layer':
       return {
         ...state,
@@ -73,6 +77,18 @@ function App() {
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 })
   const [panMode, setPanMode] = useState(false)
   const [controlsOpen, setControlsOpen] = useState(() => !window.matchMedia('(max-width: 900px)').matches)
+  const [fileMessage, setFileMessage] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const [importer] = useState(createProjectImporter)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      importer.cancel()
+    }
+  }, [importer])
   const view = getViewport(state.document, viewportSize, zoom, pan)
 
   useEffect(() => {
@@ -95,24 +111,16 @@ function App() {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.clearRect(0, 0, state.document.width, state.document.height)
-    ctx.fillStyle = state.document.background
-    ctx.fillRect(0, 0, state.document.width, state.document.height)
-
-    state.layers.forEach((layer) => {
-      if (layer.type === 'text') renderTextLayer(ctx, layer)
-    })
+    renderDocument(canvas, state)
   }, [state])
 
   const updateLayer = useCallback(
     (patch: Partial<TextLayer>) => {
       if (!selectedLayer) return
+      if (importer.cancel()) setFileMessage('Import cancelled because the document was edited.')
       dispatch({ type: 'update_text_layer', id: selectedLayer.id, patch })
     },
-    [selectedLayer],
+    [selectedLayer, importer],
   )
 
   const localPoint = (event: React.PointerEvent): Point => {
@@ -152,6 +160,58 @@ function App() {
     setPan({ x: 0, y: 0 })
   }
 
+  const cancelGesture = () => {
+    const pointerId = gestureRef.current?.pointerId
+    gestureRef.current = null
+    setActiveGesture(null)
+    if (pointerId === undefined) return
+    for (const element of [viewportRef.current, viewportRef.current?.querySelector('.text-handle')]) {
+      if (element?.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId)
+    }
+  }
+
+  const importProject = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!file) return
+    setFileMessage('Reading project…')
+    try {
+      const imported = await importer.load(file)
+      if (!imported) return
+      cancelGesture()
+      importer.cancel()
+      dispatch({ type: 'replace_project', state: imported })
+      fitToView()
+      setPanMode(false)
+      setFileMessage('Project loaded. View fitted to document.')
+    } catch (error) {
+      setFileMessage(`${error instanceof Error ? error.message : 'Could not read project.'} Current document unchanged.`)
+    }
+  }
+
+  const saveProject = () => {
+    try {
+      downloadFile(new Blob([encodeProject(state)], { type: 'application/json' }), 'glyphforge-project.json')
+      setFileMessage('Project JSON download requested.')
+    } catch (error) {
+      setFileMessage(error instanceof Error ? error.message : 'Could not save project.')
+    }
+  }
+
+  const savePng = async () => {
+    setExporting(true)
+    try {
+      const blob = await exportPng(state)
+      if (!mountedRef.current) return
+      downloadFile(blob, 'glyphforge.png')
+      setFileMessage('PNG download requested (1000 × 700 pixels).')
+    } catch (error) {
+      if (mountedRef.current) setFileMessage(error instanceof Error ? error.message : 'Could not export PNG.')
+    } finally {
+      if (mountedRef.current) setExporting(false)
+    }
+  }
+
   if (!selectedLayer) return null
 
   return (
@@ -161,6 +221,16 @@ function App() {
           <h1>GlyphForge</h1>
           <span>1000 × 700 document</span>
         </header>
+        <div className="project-toolbar" role="group" aria-label="Project files">
+          <button type="button" onClick={saveProject}>Save project</button>
+          <button type="button" onClick={savePng} disabled={exporting}>{exporting ? 'Exporting PNG…' : 'Export PNG'}</button>
+          <label className="project-file">
+            Open project
+            <input type="file" accept=".json,application/json" onChange={importProject} aria-describedby="project-help" />
+          </label>
+        </div>
+        <p className="hint" id="project-help">Open replaces the current document after validation. Save a project to keep editing later; PNG is an image only.</p>
+        <p className="file-status" role="status" aria-label="Project file status" aria-live="polite" aria-atomic="true">{fileMessage}</p>
         <div className="viewport-toolbar" role="group" aria-label="Canvas view">
           <button type="button" onClick={() => changeZoom(-0.25)} disabled={zoom <= MIN_ZOOM} aria-label="Zoom out">−</button>
           <output aria-label="Zoom level">{Math.round(view.scale * 100)}%</output>
@@ -244,6 +314,7 @@ function App() {
           Content
           <textarea
             value={selectedLayer.content}
+            maxLength={MAX_CONTENT_LENGTH}
             onChange={(e) => updateLayer({ content: e.target.value })}
             rows={5}
           />
@@ -253,6 +324,7 @@ function App() {
           Font Family
           <input
             type="text"
+            maxLength={MAX_FONT_FAMILY_LENGTH}
             value={selectedLayer.fontFamily}
             onChange={(e) => updateLayer({ fontFamily: e.target.value })}
           />

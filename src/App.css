@@ -109,6 +109,11 @@ button[aria-pressed='true'] { background: #dbeafe; border-color: #2563eb; }
 .stage-header span { font-size: 0.85rem; color: #4b5563; }
 .viewport-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .viewport-toolbar output { min-width: 3.5rem; text-align: center; }
+.project-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.project-file { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; font-weight: 600; }
+.project-file input { font: inherit; min-height: 44px; min-width: 44px; width: 100%; max-width: 280px; }
+.project-file input::file-selector-button { min-height: 44px; font: inherit; cursor: pointer; }
+.file-status { min-height: 1.5em; margin: 0; font-size: 0.9rem; overflow-wrap: anywhere; }
 
 .canvas-viewport {
   position: relative;
