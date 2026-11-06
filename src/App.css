@@ -107,7 +107,7 @@ button[aria-pressed='true'] { background: #dbeafe; border-color: #2563eb; }
 .stage-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1rem; }
 .stage-header h1 { font-size: 1.25rem; margin: 0; }
 .stage-header span { font-size: 0.85rem; color: #4b5563; }
-.viewport-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.viewport-toolbar, .history-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .viewport-toolbar output { min-width: 3.5rem; text-align: center; }
 .project-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .project-file { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; font-weight: 600; }

@@ -4,7 +4,7 @@
 
 GlyphForge is a canvas-based text composition tool for designing stylized glyph layouts.
 
-Current state: single-text-layer editor with mobile editing, portable versioned project files, PNG export and rendering/interaction regression checks.
+Current state: single-text-layer editor with mobile editing, bounded Undo/Redo, portable versioned project files, PNG export and rendering/interaction regression checks.
 
 ## What the product does today
 
@@ -26,6 +26,7 @@ Current state: single-text-layer editor with mobile editing, portable versioned 
 - Stage-first phone layout with collapsible text controls, 44px targets and visible keyboard focus
 - Fit-to-view, bounded zoom and opt-in pan without changing the 1000×700 logical document
 - Downloads portable GlyphForge JSON projects, validates file imports atomically, and exports full-resolution PNG images
+- In-memory Undo/Redo for the last 100 completed composition edits, including project replacement
 
 ## Editing on a phone or keyboard
 
@@ -39,22 +40,34 @@ At widths up to 900px, the document comes first and **Text controls** starts col
 
 Zoom and pan are view-only. Canvas backing dimensions, glyph layout and renderer output remain unchanged. Reloading still resets the document unless you save a project and reopen it.
 
+## Undo and redo
+
+- Use **Undo** / **Redo** above the stage, **Ctrl/Cmd+Z**, **Ctrl/Cmd+Shift+Z**, or **Ctrl+Y**. The buttons are disabled when their action is unavailable, wrap on phones and keep 44px targets and visible keyboard focus.
+- Shortcuts inside any input, textarea, select or editable content belong to the browser's **native field undo**, not document history. Leave the field or use the stage buttons to navigate whole-composition history.
+- One handle drag is one edit, regardless of how many pointer moves it contains. A cancelled drag retains its last actual position as one undoable edit. Text/font-family/color changes are grouped until the field loses focus; slider drags complete on pointer release/cancellation, and a held slider key completes on key release (or blur). Discrete direction, upright and handle-arrow changes are separate edits.
+- History retains at most **100 completed document edits**. It restores the entire composition and the selection accompanying that edit, including imported IDs and model properties that do not have controls. Successful project import is one undoable replacement; malformed/failed imports and unchanged compositions do not add steps.
+- Zoom, pan, disclosure and selection-only changes are not history entries. Undo/Redo does not change the viewport. No-op edits (including a grouped edit returned to its starting value) preserve redo; a real completed edit after Undo starts a new branch and clears redo.
+- History navigation settles the current edit, cancels captured canvas gestures, and invalidates pending file reads and their stale errors. An old pointer release or delayed import cannot overwrite the restored composition.
+
+History exists **only in memory**. It is neither auto-saved nor included in project JSON; reloading clears it and resets the composition. Download a project to retain the current composition, not its edit history.
+
+
 ## Save, reopen and export
 
 - **Save project** downloads `glyphforge-project.json`. Keep this file to resume editing or transfer the composition to another device.
-- **Open project** uses the native file picker. The entire file is validated before replacement; malformed, unsupported or oversized files leave both the composition and view untouched and show an accessible status message. Save your current project first if you want to retain it.
+- **Open project** uses the native file picker. The entire file is validated before replacement; malformed, unsupported or oversized files leave both the composition and view untouched and show an accessible status message. A successful replacement can be undone; save your current project to retain it beyond this session.
 - A successful import selects the single text layer, cancels any active drag/pan and obsolete file reads, turns off pan mode and fits the view. The latest file selection wins; editing while a file is being read cancels that pending replacement.
 - **Export PNG** downloads `glyphforge.png`: the actual **1000×700** document background and rendered text, without blue handles, toolbar, clipping from the viewport, or pan/zoom transforms. It is a flattened image, not an editable project.
 
 ### Project format and limits
 
-Version 1 uses exactly the root fields `format: "GlyphForge"`, `version: 1`, `document`, `layers`, and `selectedLayerId`. It preserves every current document/text-layer model property, including fractional position, background, typography, direction, rotation, upright characters, visibility and opacity. View position, zoom, disclosure state and transient gestures are intentionally excluded.
+Version 1 uses exactly the root fields `format: "GlyphForge"`, `version: 1`, `document`, `layers`, and `selectedLayerId`. It preserves every current document/text-layer model property, including fractional position, background, typography, direction, rotation, upright characters, visibility and opacity. View position, zoom, disclosure state, transient gestures and undo/redo history are intentionally excluded. Undo/Redo does not change this format or its version.
 
 Only the existing **1000×700** document and **one unlocked text layer, selected by its ID**, are supported. Unknown fields, missing fields, unknown versions, other layer types, multiple layers and locked layers are rejected rather than silently discarded. This is not a multi-layer editor or an importer for arbitrary JSON.
 
 Files are limited to **256,000 UTF-8 bytes**; content to **10,000 UTF-16 code units**, font-family text to 200, and layer names/IDs to 100. The content and font-family controls enforce the same lengths. All numeric fields must be finite. Positions stay within the document; font size stays 8–180px, spacing −10–60px, rotation −180–180°, opacity 0–100%, font weight 1–1000 and line-height multiplier 0.1–10. Colors use six-digit hex values; style and direction use the model's explicit supported values.
 
-Fonts are named, **not embedded**. Another device needs the same installed font for identical rendering; otherwise browser font fallback applies. No cloud storage, localStorage autosave, embedded assets/fonts, undo history, custom document dimensions, or SVG export is included.
+Fonts are named, **not embedded**. Another device needs the same installed font for identical rendering; otherwise browser font fallback applies. No cloud storage, localStorage autosave, embedded assets/fonts, persisted undo history, custom document dimensions, or SVG export is included.
 
 
 ## Core architecture
@@ -69,7 +82,9 @@ Fonts are named, **not embedded**. Another device needs the same installed font 
 
 ## Project structure
 
-- `src/App.tsx` — editor UI and state reducer
+- `src/App.tsx` — editor UI, native input/gesture lifecycles and history/import coordination
+- `src/lib/editorHistory.ts` / `editorHistory.test.ts` — source-of-truth composition reducer, bounded completed-edit history and grouping regressions
+- `scripts/editor-history.mjs` — real desktop/phone edit, download, native undo, grouping, branch, race and capacity regressions
 - `src/lib/textLayout.ts` — glyph placement logic
 - `src/lib/renderTextLayer.ts` — canvas text rendering
 - `src/lib/viewport.ts` — fit, bounded pan/zoom, screen/document coordinate transforms
@@ -110,7 +125,7 @@ npm run preview
   - Live URL: `https://glyphforge-eosin.vercel.app`
 
 - The source-only `overnight/2026-11-06-mobile-editor` branch has an exact branch-specific `git.deploymentEnabled: false` guard in `vercel.json`. It does not change production `main` behavior or Vercel project settings.
-- PR CI also installs Chromium, runs `npm run test:mobile` and `npm run test:files` against a loopback production preview, and uploads `artifacts/mobile/` and `artifacts/files/` evidence even when checks fail.
+- PR CI also installs Chromium, runs `npm run test:mobile`, `npm run test:files` and `npm run test:history` against a loopback production preview, and uploads `artifacts/mobile/`, `artifacts/files/` and `artifacts/history/` evidence even when checks fail.
 
 ## Test
 
@@ -158,6 +173,15 @@ Run `npm run test:files` against the same running preview (and optional `GLYPHFO
 Local proof passed: **56 unit tests** (the original 18 plus 38 codec/import checks), ESLint, TypeScript/Vite build, both portable-file profiles, all three existing mobile/desktop profiles and all six visual scenarios. Import checks cover malformed/future/multilayer preservation, delayed file-selection and edit races, stale errors, genuine captured-gesture cancellation, fit-on-import and PNG encoder failure. The always-mounted live status remains exposed even when empty. Ignored `artifacts/files/` contains downloaded JSON/PNG and fresh screenshots.
 
 An independently opened Chromium tab also exercised desktop edit/import/zoom/pan and phone import/PNG export/failure handling. Its phone failed-import screenshot and accessibility tree show the error while the original canvas pixels remain unchanged, with page width 390/390 and no browser runtime errors. These checks are Chromium emulations, not real Safari/iOS/Android or a full screen-reader audit; browser download completion is asserted by the automated runner, not inferred from the UI's “download requested” status. No remote CI, deployment, commit or push is part of this milestone.
+
+### Undo/Redo milestone validation (2026-11-06)
+
+Run `npm run test:history` against the same running preview (and optional `GLYPHFORGE_BASE_URL`). Local proof passed: **74 unit tests** (18 new history checks), ESLint and TypeScript/Vite build; both desktop and iPhone 13 Chromium history profiles; both existing file profiles; all three existing mobile profiles; and all six existing rendering scenarios.
+
+The history runner downloads actual JSON and compares whole compositions after Undo/Redo, compares canvas pixels within the same browser run, and exercises Ctrl/Cmd shortcuts plus native textarea/text-input/contenteditable undo. It covers long text edits, held-key and pointer sliders, 60-move handle drags and real touch cancellation, view-only/no-op/failed-import redo preservation, new edit branches, import across IDs/properties, active-pointer/pending-file/stale-error fencing, exactly 100 retained steps (105 edits, 100 undos and redos), reload reset, focus, 44px targets and no phone overflow. Ignored `artifacts/history/` holds downloaded projects, desktop/phone screenshots and fresh six-scenario rendering evidence; tracked reference PNGs were preserved, not re-pinned. The visual runner generates scenarios; no cross-platform golden equality is claimed.
+
+A separately opened Chromium tab also exercised desktop shortcut and phone button Undo/Redo with canvas restoration, fresh screenshots, 390/390 phone viewport/page widths and no runtime errors. These remain Chromium emulations, not real Safari/iOS/Android or a full screen-reader audit. No remote CI or deployment was run for this milestone.
+
 
 
 ## What this is not yet

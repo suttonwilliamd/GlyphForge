@@ -2,18 +2,14 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import './App.css'
 import { downloadFile, exportPng, renderDocument } from './lib/renderDocument'
 import { createProjectImporter, encodeProject, MAX_CONTENT_LENGTH, MAX_FONT_FAMILY_LENGTH } from './lib/project'
+import { canRedo, canUndo, createEditorHistory, editorReducer, isNativeHistoryTarget } from './lib/editorHistory'
 import type { EditorState, TextDirection, TextLayer } from './types/editor'
 import { clamp, constrainPosition, getViewport, MAX_ZOOM, MIN_ZOOM, toDocument, toViewport } from './lib/viewport'
 import type { Point } from './lib/viewport'
 
 type Gesture =
-  | { kind: 'handle'; pointerId: number; offset: Point }
+  | { kind: 'handle'; pointerId: number; offset: Point; layerId: string }
   | { kind: 'pan'; pointerId: number; start: Point; pan: Point }
-
-type Action =
-  | { type: 'update_text_layer'; id: string; patch: Partial<TextLayer> }
-  | { type: 'select_layer'; id: string }
-  | { type: 'replace_project'; state: EditorState }
 
 const initialLayer: TextLayer = {
   id: 'layer-1',
@@ -47,27 +43,10 @@ const initialState: EditorState = {
   selectedLayerId: initialLayer.id,
 }
 
-function reducer(state: EditorState, action: Action): EditorState {
-  switch (action.type) {
-    case 'replace_project':
-      return action.state
-    case 'update_text_layer':
-      return {
-        ...state,
-        layers: state.layers.map((layer) => {
-          if (layer.id !== action.id || layer.type !== 'text') return layer
-          return { ...layer, ...action.patch }
-        }),
-      }
-    case 'select_layer':
-      return { ...state, selectedLayerId: action.id }
-    default:
-      return state
-  }
-}
 
 function App() {
-  const [state, dispatch] = useReducer(reducer, initialState)
+  const [history, dispatch] = useReducer(editorReducer, initialState, createEditorHistory)
+  const state = history.present
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const gestureRef = useRef<Gesture | null>(null)
@@ -115,10 +94,10 @@ function App() {
   }, [state])
 
   const updateLayer = useCallback(
-    (patch: Partial<TextLayer>) => {
+    (patch: Partial<TextLayer>, group?: string) => {
       if (!selectedLayer) return
       if (importer.cancel()) setFileMessage('Import cancelled because the document was edited.')
-      dispatch({ type: 'update_text_layer', id: selectedLayer.id, patch })
+      dispatch({ type: 'update_text_layer', id: selectedLayer.id, patch, group })
     },
     [selectedLayer, importer],
   )
@@ -130,6 +109,7 @@ function App() {
 
   const finishGesture = (event: React.PointerEvent) => {
     if (gestureRef.current?.pointerId !== event.pointerId) return
+    if (gestureRef.current.kind === 'handle') dispatch({ type: 'complete_edit', group: 'drag' })
     gestureRef.current = null
     setActiveGesture(null)
   }
@@ -141,7 +121,11 @@ function App() {
     const point = localPoint(event)
     if (gesture.kind === 'handle') {
       const logical = toDocument(point, view)
-      updateLayer(constrainPosition({ x: logical.x - gesture.offset.x, y: logical.y - gesture.offset.y }, state.document))
+      if (importer.cancel()) setFileMessage('Import cancelled because the document was edited.')
+      dispatch({
+        type: 'update_text_layer', id: gesture.layerId, group: 'drag',
+        patch: constrainPosition({ x: logical.x - gesture.offset.x, y: logical.y - gesture.offset.y }, state.document),
+      })
     } else {
       setPan(getViewport(state.document, viewportSize, zoom, {
         x: gesture.pan.x + point.x - gesture.start.x,
@@ -160,15 +144,38 @@ function App() {
     setPan({ x: 0, y: 0 })
   }
 
-  const cancelGesture = () => {
+  const cancelGesture = useCallback(() => {
     const pointerId = gestureRef.current?.pointerId
+    dispatch({ type: 'complete_edit' })
     gestureRef.current = null
     setActiveGesture(null)
     if (pointerId === undefined) return
     for (const element of [viewportRef.current, viewportRef.current?.querySelector('.text-handle')]) {
       if (element?.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId)
     }
-  }
+  }, [])
+
+  const travelHistory = useCallback((type: 'undo' | 'redo') => {
+    cancelGesture()
+    const cancelled = importer.cancel()
+    setFileMessage(cancelled ? 'Pending import cancelled by history navigation.' : '')
+    dispatch({ type })
+  }, [cancelGesture, importer])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || isNativeHistoryTarget(event.target)) return
+      const key = event.key.toLowerCase()
+      const undo = (event.ctrlKey || event.metaKey) && key === 'z' && !event.shiftKey
+      const redo = ((event.ctrlKey || event.metaKey) && key === 'z' && event.shiftKey) ||
+        (event.ctrlKey && !event.metaKey && !event.shiftKey && key === 'y')
+      if (!undo && !redo) return
+      event.preventDefault()
+      travelHistory(undo ? 'undo' : 'redo')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [travelHistory])
 
   const importProject = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0]
@@ -221,6 +228,10 @@ function App() {
           <h1>GlyphForge</h1>
           <span>1000 × 700 document</span>
         </header>
+        <div className="history-toolbar" role="group" aria-label="Document history">
+          <button type="button" onClick={() => travelHistory('undo')} disabled={!canUndo(history)} aria-keyshortcuts="Control+Z Meta+Z">Undo</button>
+          <button type="button" onClick={() => travelHistory('redo')} disabled={!canRedo(history)} aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y">Redo</button>
+        </div>
         <div className="project-toolbar" role="group" aria-label="Project files">
           <button type="button" onClick={saveProject}>Save project</button>
           <button type="button" onClick={savePng} disabled={exporting}>{exporting ? 'Exporting PNG…' : 'Export PNG'}</button>
@@ -289,7 +300,8 @@ function App() {
               event.currentTarget.focus({ preventScroll: true })
               event.currentTarget.setPointerCapture(event.pointerId)
               const point = toDocument(localPoint(event), view)
-              gestureRef.current = { kind: 'handle', pointerId: event.pointerId, offset: { x: point.x - selectedLayer.x, y: point.y - selectedLayer.y } }
+              dispatch({ type: 'complete_edit' })
+              gestureRef.current = { kind: 'handle', pointerId: event.pointerId, layerId: selectedLayer.id, offset: { x: point.x - selectedLayer.x, y: point.y - selectedLayer.y } }
               setActiveGesture('handle')
             }}
             onKeyDown={(event) => {
@@ -298,7 +310,8 @@ function App() {
               if (!delta) return
               event.preventDefault()
               const step = event.shiftKey ? 10 : 1
-              updateLayer(constrainPosition({ x: selectedLayer.x + delta.x * step, y: selectedLayer.y + delta.y * step }, state.document))
+              if (importer.cancel()) setFileMessage('Import cancelled because the document was edited.')
+              dispatch({ type: 'move_text_layer', id: selectedLayer.id, delta: { x: delta.x * step, y: delta.y * step } })
             }}
           />
         </div>
@@ -306,16 +319,31 @@ function App() {
         <output className="position-readout" id="text-position">Position: X {selectedLayer.x}, Y {selectedLayer.y}</output>
       </main>
       <aside className="panel" aria-label="Text controls">
-        <details open={controlsOpen} onToggle={(event) => setControlsOpen(event.currentTarget.open)}>
+        <details open={controlsOpen} onToggle={(event) => {
+          setControlsOpen(event.currentTarget.open)
+          if (!event.currentTarget.open) dispatch({ type: 'complete_edit' })
+        }}>
           <summary>Text controls</summary>
-          <div className="panel-fields">
+          <div
+            className="panel-fields"
+            onBlurCapture={() => dispatch({ type: 'complete_edit' })}
+            onPointerUpCapture={(event) => {
+              if (event.target instanceof HTMLInputElement && event.target.type === 'range') dispatch({ type: 'complete_edit' })
+            }}
+            onPointerCancelCapture={(event) => {
+              if (event.target instanceof HTMLInputElement && event.target.type === 'range') dispatch({ type: 'complete_edit' })
+            }}
+            onKeyUpCapture={(event) => {
+              if (event.target instanceof HTMLInputElement && event.target.type === 'range') dispatch({ type: 'complete_edit' })
+            }}
+          >
 
         <label>
           Content
           <textarea
             value={selectedLayer.content}
             maxLength={MAX_CONTENT_LENGTH}
-            onChange={(e) => updateLayer({ content: e.target.value })}
+            onChange={(e) => updateLayer({ content: e.target.value }, 'content')}
             rows={5}
           />
         </label>
@@ -326,7 +354,7 @@ function App() {
             type="text"
             maxLength={MAX_FONT_FAMILY_LENGTH}
             value={selectedLayer.fontFamily}
-            onChange={(e) => updateLayer({ fontFamily: e.target.value })}
+            onChange={(e) => updateLayer({ fontFamily: e.target.value }, 'fontFamily')}
           />
         </label>
 
@@ -337,7 +365,7 @@ function App() {
             min={8}
             max={180}
             value={selectedLayer.fontSize}
-            onChange={(e) => updateLayer({ fontSize: Number(e.target.value) })}
+            onChange={(e) => updateLayer({ fontSize: Number(e.target.value) }, 'fontSize')}
           />
         </label>
 
@@ -348,7 +376,7 @@ function App() {
             min={-10}
             max={60}
             value={selectedLayer.letterSpacing}
-            onChange={(e) => updateLayer({ letterSpacing: Number(e.target.value) })}
+            onChange={(e) => updateLayer({ letterSpacing: Number(e.target.value) }, 'letterSpacing')}
           />
         </label>
 
@@ -371,7 +399,7 @@ function App() {
             min={-180}
             max={180}
             value={selectedLayer.rotation}
-            onChange={(e) => updateLayer({ rotation: Number(e.target.value) })}
+            onChange={(e) => updateLayer({ rotation: Number(e.target.value) }, 'rotation')}
           />
         </label>
 
@@ -391,7 +419,7 @@ function App() {
           <input
             type="color"
             value={selectedLayer.color}
-            onChange={(e) => updateLayer({ color: e.target.value })}
+            onChange={(e) => updateLayer({ color: e.target.value }, 'color')}
           />
         </label>
           </div>

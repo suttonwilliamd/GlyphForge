@@ -11,6 +11,7 @@
     "test:visual": "node scripts/visual-snapshots.mjs",
     "test:mobile": "node scripts/mobile-editor.mjs",
     "test:files": "node scripts/project-files.mjs",
+    "test:history": "node scripts/editor-history.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

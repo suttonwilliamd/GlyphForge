@@ -27,3 +27,4 @@ dist-ssr
 # Disposable mobile browser evidence (uploaded by CI)
 artifacts/mobile/
 artifacts/files/
+artifacts/history/
