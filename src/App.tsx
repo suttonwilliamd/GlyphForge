@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import './App.css'
 import { renderTextLayer } from './lib/renderTextLayer'
+import { MAX_PROJECT_BYTES, parseProject, serializeProject } from './lib/project'
 import type { EditorState, TextDirection, TextLayer } from './types/editor'
 
 type Action =
   | { type: 'update_text_layer'; id: string; patch: Partial<TextLayer> }
   | { type: 'select_layer'; id: string }
+  | { type: 'open_project'; state: EditorState }
 
 const initialLayer: TextLayer = {
   id: 'layer-1',
@@ -41,6 +43,8 @@ const initialState: EditorState = {
 
 function reducer(state: EditorState, action: Action): EditorState {
   switch (action.type) {
+    case 'open_project':
+      return action.state
     case 'update_text_layer':
       return {
         ...state,
@@ -61,6 +65,10 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const [isDraggingHandle, setIsDraggingHandle] = useState(false)
+  const [fileStatus, setFileStatus] = useState('Save a project to keep editable text; export PNG for a finished image.')
+  const [pendingProject, setPendingProject] = useState<EditorState | null>(null)
+  const fileRequest = useRef(0)
+  const projectFileRef = useRef<HTMLInputElement | null>(null)
 
   const selectedLayer = useMemo(() => {
     return state.layers.find((layer) => layer.id === state.selectedLayerId && layer.type === 'text') as
@@ -140,12 +148,90 @@ function App() {
     }
   }, [getCanvasPointFromPointer, isDraggingHandle, selectedLayer, updateLayer])
 
+  function download(blob: Blob, name: string) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = name
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  function saveProject() {
+    try {
+      download(new Blob([serializeProject(state)], { type: 'application/json' }), 'glyphforge-project.json')
+      setFileStatus('Project JSON download requested. It contains editable text and settings, not font files.')
+    } catch (error) {
+      setFileStatus(error instanceof Error ? error.message : 'Project could not be saved.')
+    }
+  }
+
+  function exportPng() {
+    try {
+      canvasRef.current?.toBlob(blob => {
+        if (!blob) { setFileStatus('PNG export failed. Your composition is unchanged.'); return }
+        download(blob, 'glyphforge.png')
+        setFileStatus(`PNG download requested at ${state.document.width} × ${state.document.height} pixels, without the editor handle.`)
+      }, 'image/png')
+    } catch {
+      setFileStatus('PNG export failed. Your composition is unchanged.')
+    }
+  }
+
+  async function previewProject(event: React.ChangeEvent<HTMLInputElement>) {
+    const request = ++fileRequest.current
+    const file = event.currentTarget.files?.[0]
+    setPendingProject(null)
+    if (!file) return
+    setFileStatus('Checking project. Your current composition is unchanged.')
+    try {
+      if (file.size > MAX_PROJECT_BYTES) throw new Error('Project files must be no larger than 1 MB.')
+      const project = parseProject(await file.text())
+      if (request !== fileRequest.current) return
+      setPendingProject(project)
+      setFileStatus(`Ready: ${project.layers[0].name}, ${project.document.width} × ${project.document.height}. Opening replaces the current composition. Save it first if needed.`)
+    } catch (error) {
+      if (request !== fileRequest.current) return
+      setFileStatus(`${error instanceof Error ? error.message : 'Project could not be read.'} Current composition kept.`)
+    }
+  }
+
+  function clearProjectPreview() {
+    fileRequest.current++
+    setPendingProject(null)
+    if (projectFileRef.current) projectFileRef.current.value = ''
+  }
+
   if (!selectedLayer) return null
 
   return (
     <div className="app-shell">
       <aside className="panel">
         <h2>GlyphForge • Phase 1</h2>
+        <section className="project-tools" aria-label="Project files">
+          <div className="file-actions">
+            <button type="button" onClick={saveProject}>Save project JSON</button>
+            <button type="button" onClick={exportPng}>Export PNG</button>
+          </div>
+          <label>
+            Choose project JSON
+            <input ref={projectFileRef} type="file" accept=".json,application/json" onChange={previewProject} aria-describedby="file-status" />
+          </label>
+          <div className="file-actions">
+            <button type="button" disabled={!pendingProject} onClick={() => {
+              if (!pendingProject) return
+              setIsDraggingHandle(false)
+              dispatch({ type: 'open_project', state: pendingProject })
+              clearProjectPreview()
+              setFileStatus('Project opened. No automatic browser save; download a project JSON to keep changes.')
+            }}>Open project</button>
+            <button type="button" disabled={!pendingProject} onClick={() => {
+              clearProjectPreview()
+              setFileStatus('Open cancelled. Current composition kept.')
+            }}>Cancel open</button>
+          </div>
+          <p id="file-status" className="hint" role="status">{fileStatus}</p>
+        </section>
 
         <label>
           Content
@@ -153,6 +239,7 @@ function App() {
             value={selectedLayer.content}
             onChange={(e) => updateLayer({ content: e.target.value })}
             rows={5}
+            maxLength={10000}
           />
         </label>
 

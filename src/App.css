@@ -126,3 +126,44 @@
 .text-handle.dragging {
   cursor: grabbing;
 }
+
+.project-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #d7d9df;
+}
+
+.file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.file-actions button {
+  font: inherit;
+  padding: 0.6rem;
+  min-height: 44px;
+  border: 1px solid #cfd4dd;
+  border-radius: 8px;
+  background: #f3f4f7;
+  color: inherit;
+  cursor: pointer;
+}
+
+.file-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.project-tools input[type='file'] {
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.project-tools :focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
